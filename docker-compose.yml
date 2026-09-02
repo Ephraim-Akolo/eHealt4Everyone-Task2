@@ -1,28 +1,67 @@
 services:
+  migrate:
+    build: .
+    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput"
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-insecure-key}
+      - DEBUG=${DEBUG:-true}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - DATABASE_URL=postgres://${DB_USER:-taskuser}:${DB_PASSWORD:-taskpass}@postgres:5432/${DB_NAME:-taskdb}
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-devredispass}"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-devredispass}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      - POSTGRES_DB=${DB_NAME:-taskdb}
+      - POSTGRES_USER=${DB_USER:-taskuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-taskpass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-taskuser} -d ${DB_NAME:-taskdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
 
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    command: gunicorn core.wsgi:application --bind 0.0.0.0:8000
     volumes:
       - .:/app
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379/1
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-insecure-key}
-      - DJANGO_DEBUG=${DJANGO_DEBUG:-true}
+      - SECRET_KEY=${SECRET_KEY:-dev-only-insecure-key}
+      - DEBUG=${DEBUG:-true}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - DATABASE_URL=postgres://${DB_USER:-taskuser}:${DB_PASSWORD:-taskpass}@postgres:5432/${DB_NAME:-taskdb}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devredispass}@redis:6379/1
     depends_on:
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
 
 volumes:
   redis_data:
-
-  
+  postgres_data:
