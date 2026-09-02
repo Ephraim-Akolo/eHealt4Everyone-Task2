@@ -22,9 +22,6 @@ class RequestLoggingMiddleware:
         duration = time.monotonic() - start_time
         end_dt = datetime.now(timezone.utc)
 
-        # request.user is populated by DRF's JWTAuthentication during the view's
-        # permission check, which mutates this same underlying request object —
-        # so it's already resolved by the time we get here, post-response.
         user = getattr(request, "user", None)
         username = user.username if user and user.is_authenticated else "anonymous"
 
