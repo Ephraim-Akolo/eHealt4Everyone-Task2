@@ -16,8 +16,4 @@ COPY . .
 
 RUN mkdir -p /app/logs
 
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000"]
