@@ -1,7 +1,7 @@
 services:
   migrate:
     build: .
-    command: sh -c "python manage.py makemigrations --noinput && python manage.py migrate --noinput && python manage.py collectstatic --noinput"
+    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput"
     environment:
       - SECRET_KEY=${SECRET_KEY:-dev-only-insecure-key}
       - DEBUG=${DEBUG:-true}
