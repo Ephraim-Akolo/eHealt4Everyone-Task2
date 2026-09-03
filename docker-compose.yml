@@ -3,7 +3,7 @@ services:
     build: .
     command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput"
     environment:
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-insecure-key}
+      - SECRET_KEY=${SECRET_KEY:-dev-only-insecure-key}
       - DEBUG=${DEBUG:-true}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
       - DATABASE_URL=postgres://${DB_USER:-taskuser}:${DB_PASSWORD:-taskpass}@postgres:5432/${DB_NAME:-taskdb}
@@ -60,6 +60,8 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
 volumes:
