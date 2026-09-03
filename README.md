@@ -1,113 +1,154 @@
-# Task 2 — DRF API with JWT Auth, Per-User Logging, and Redis Caching
+# Task API
 
-A Django REST Framework API demonstrating:
-- JWT-authenticated endpoints (only authenticated users can access the API)
-- Per-user request/response logging with timing, stored on the filesystem
-- Redis-backed response caching with a dynamic cache-busting strategy
+A Django REST Framework API with JWT authentication, per-user file-based
+request logging, and Redis-backed response caching with dynamic
+cache-busting.
 
 ## Stack
 
-- Django + Django REST Framework
-- PostgreSQL (database)
-- Redis (cache)
+- Django 5.1 + Django REST Framework
 - JWT auth via `djangorestframework-simplejwt`
-- Dockerized: `web`, `migrate`, `postgres`, `redis` services via Docker Compose
+- PostgreSQL (via `docker-compose`)
+- Redis, for both response caching and cache-version counters
+- Gunicorn + Whitenoise
 
-## Setup (Docker — recommended)
+## Run it
 
-The stack runs out of the box with sensible defaults — **no `.env` file required** for local
-use. If you want to override anything (secret key, DB credentials, Redis password, etc.),
-copy `.env.example` to `.env` and adjust as needed; Docker Compose picks it up automatically.
+```bash
+cp .env.example .env   # then edit the values, especially SECRET_KEY / passwords
+docker compose up --build
+```
 
-    docker compose up --build
+This starts, in order: `postgres` → `migrate` (runs migrations +
+collectstatic, then exits) → `redis` and `web` (the API on
+`http://localhost:8000`).
 
-This brings up Postgres and Redis, runs migrations automatically (via the one-shot `migrate`
-service), then starts the API on `http://localhost:8000`.
+## Auth
 
-Create a user to authenticate with:
+All endpoints under `/api/` require a valid JWT **except** registration.
 
-    docker compose exec web python manage.py createsuperuser
+```bash
+# Register
+curl -X POST localhost:8000/api/auth/register/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "email": "alice@example.com", "password": "s3cur3-pass!", "role": "member"}'
 
-## Setup (manual, without Docker)
+# Log in -> get access + refresh tokens
+curl -X POST localhost:8000/api/auth/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "s3cur3-pass!"}'
 
-    python -m venv venv && source venv/bin/activate
-    pip install -r requirements.txt
-    docker compose up -d postgres redis   # still need these running somewhere
-    python manage.py migrate
-    python manage.py createsuperuser
-    python manage.py runserver
+# Use the access token
+curl localhost:8000/api/tasks/ -H "Authorization: Bearer <access_token>"
 
-## Environment Variables
+# Refresh
+curl -X POST localhost:8000/api/auth/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "<refresh_token>"}'
+```
 
-All variables have working defaults for local development. Override via `.env` for anything
-beyond local use (see `.env.example`).
+`role` is one of `member` (default, sees only their own tasks), `manager`
+(same as member for now — a hook for future permission tiers), or `admin`
+(sees and can modify every user's tasks). In practice you'd only let
+trusted callers set `role` on registration; see "Notes / what I'd add
+next" below.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `SECRET_KEY` | `dev-only-insecure-key` | Django secret key — **must** be overridden in any non-local environment |
-| `DEBUG` | `true` | Django debug mode |
-| `ALLOWED_HOSTS` | `*` | Django allowed hosts |
-| `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `taskdb` / `taskuser` / `taskpass` | Postgres credentials |
-| `REDIS_PASSWORD` | `devredispass` | Redis auth password |
+`DEFAULT_PERMISSION_CLASSES` in `core/settings.py` is set to
+`IsAuthenticated` globally, so any *new* endpoint you add is
+locked-down-by-default unless you explicitly override it (as
+`RegisterView` does with `AllowAny`).
 
-## Authentication
+## Tasks API
 
-All API endpoints require a JWT access token — enforced globally via
-`DEFAULT_PERMISSION_CLASSES = IsAuthenticated` in `REST_FRAMEWORK` settings.
+Standard REST/DRF ViewSet at `/api/tasks/`:
 
-    # Obtain a token
-    curl -X POST http://localhost:8000/api/token/ -d "username=<user>&password=<pass>"
+| Method | Path              | Notes                                |
+|--------|-------------------|---------------------------------------|
+| GET    | `/api/tasks/`     | List (cached — see below)             |
+| POST   | `/api/tasks/`     | Create (owner = current user)         |
+| GET    | `/api/tasks/{id}/`| Retrieve (owner or admin only)        |
+| PATCH  | `/api/tasks/{id}/`| Update (owner or admin only)          |
+| DELETE | `/api/tasks/{id}/`| Delete (owner or admin only)          |
 
-    # Use it
-    curl http://localhost:8000/api/sample-data/ -H "Authorization: Bearer <access_token>"
+`GET /api/tasks/?status=done` filters by status
+(`todo` / `in_progress` / `done`).
 
-    # Refresh an expired access token
-    curl -X POST http://localhost:8000/api/token/refresh/ -d "refresh=<refresh_token>"
+## Request/response logging
 
-Requests without a valid token receive `401 Unauthorized`.
+`api/middleware.py`'s `RequestLoggingMiddleware` writes one JSON object
+per line to `logs/<username>.log` (`logs/anonymous.log` for
+unauthenticated requests) for **every** request, containing:
 
-## Request/Response Logging
+```json
+{
+  "start_time": "2026-09-02T10:15:03.120+00:00",
+  "end_time": "2026-09-02T10:15:03.145+00:00",
+  "duration_ms": 25.4,
+  "user": "alice",
+  "method": "GET",
+  "path": "/api/tasks/",
+  "query_params": {"status": "done"},
+  "status_code": 200,
+  "request_body": null,
+  "response_body": {"...": "..."},
+  "remote_addr": "172.19.0.1"
+}
+```
 
-Every request is logged to `logs/<username>.jsonl` (one JSON object per line) via
-`api.middleware.RequestLoggingMiddleware`. Unauthenticated requests are logged under
-`logs/anonymous.jsonl`. Each entry contains:
+Passwords/tokens in request/response bodies are redacted before writing.
+The `logs/` directory is inside the mounted volume, so entries persist on
+the host across container restarts. This is deliberately simple
+(append-only text files) per the assignment; for real production use
+you'd ship these to something like structured logging + an aggregator
+instead of local files, and rotate/size-cap the files.
 
-- `user`, `method`, `path`, `status_code`
-- `start_time`, `end_time` (UTC, ISO 8601)
-- `duration_seconds` (measured with `time.monotonic()`, immune to system clock adjustments)
+## Caching + cache-busting
 
-## Caching & Cache-Busting
+`GET /api/tasks/` responses are cached in Redis
+(`api/cache_utils.py`, wired up in `api/views.py`). A cached entry is
+only reused if **all** of these match, giving three independent
+cache-busting dimensions:
 
-Responses from `/api/sample-data/` are cached in Redis for 60 seconds. The cache key
-(`api/cache_utils.py`) is built from four independent inputs, any of which busts the cache:
+1. **URL parameters** — `?status=done` and `?status=todo` (and plain
+   `/api/tasks/`) are cached separately.
+2. **User + role** — each user has their own cache namespace, and an
+   `admin` (who sees everyone's tasks) never reads a `member`'s cached
+   response even for the same URL.
+3. **Time** — a rolling 5-minute time bucket is folded into the key, so
+   even a leftover cache entry expires within that window regardless of
+   anything else.
 
-1. **URL path + query parameters** — different filters/params never share a cached entry.
-2. **User role** (`staff` vs regular `user`) — role-dependent responses stay separate.
-3. **Time bucket** — the key changes automatically every 60 seconds, so cached data
-   self-expires without manual invalidation.
-4. **Explicit override** — pass `?refresh=true` to force a fresh computation regardless
-   of cache state.
+On top of that, any write (`POST`/`PATCH`/`DELETE`) immediately bumps a
+per-user version counter in Redis, which invalidates all of that user's
+previously cached list responses right away rather than waiting for the
+time bucket — you don't need to wait 5 minutes to see your own new task.
 
-The response body includes `"from_cache": true/false` so cache behavior is visible and
-testable directly in the response.
+For manual busting, add `?nocache=1` to any `GET /api/tasks/` request to
+force a fresh read and re-cache it.
 
-## Tests
+## Local dev without Docker
 
-    docker compose exec web python manage.py test api
-    # or, without Docker:
-    python manage.py test api
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+export DATABASE_URL=sqlite:///db.sqlite3
+export SECRET_KEY=dev-only
+export REDIS_URL=redis://localhost:6379/1   # needs a local redis-server running
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
 
-Covers: auth enforcement (missing/invalid token), cache hit/miss behavior across query
-params and user roles, the manual `?refresh=true` override, and log file contents.
+## Notes / what I'd add next
 
-## Project Structure
-
-    core/           # Django project settings, urls, wsgi
-    api/
-      views.py       # SampleDataView — the demo authenticated + cached endpoint
-      middleware.py   # RequestLoggingMiddleware
-      cache_utils.py  # cache key construction / cache-busting logic
-      tests.py
-    Dockerfile
-    docker-compose.yml
-    requirements.txt
+- The hand-written `api/migrations/0001_initial.py` was generated by hand
+  in this environment (no network access to install Django here to run
+  `makemigrations` for real) — run `python manage.py makemigrations --check`
+  as a first step after `docker compose up` to confirm it matches
+  `api/models.py` exactly; regenerate it with `makemigrations` if not.
+- `role` is settable at registration for convenience/demo purposes; in a
+  real system you would not let a self-registering user grant themselves
+  `admin`, that would go through an admin-only endpoint or the Django
+  admin site instead.
+- Rate limiting is already on (`AnonRateThrottle` / `UserRateThrottle` at
+  100/min) via `REST_FRAMEWORK` settings.
