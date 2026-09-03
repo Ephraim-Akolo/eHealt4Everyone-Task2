@@ -15,8 +15,12 @@ cache-busting.
 ## Run it
 
 ```bash
-# test environmental variables used by default. For custom values, copy or run "cp .env.example .env", then edit the values.
+# test environmental variables are used by default. For custom values, copy or run "cp .env.example .env", then edit the values.
 docker compose up --build
+
+# to create superuser (admin user)
+docker compose exec web bash
+python manage.py createsuperuser
 ```
 
 This starts, in order: `postgres` → `migrate` (runs migrations +
@@ -27,7 +31,7 @@ collectstatic, then exits) → `redis` and `web` (the API on
 
 All endpoints under `/api/v1/` require a valid JWT **except** registration.
 
-Example:
+Examples (You need curl to test the api using this method):
 ```bash
 # Register
 curl -X POST localhost:8000/api/v1/auth/register/ \
@@ -46,6 +50,36 @@ curl localhost:8000/api/v1/tasks/ -H "Authorization: Bearer <access_token>"
 curl -X POST localhost:8000/api/v1/auth/token/refresh/ \
   -H "Content-Type: application/json" \
   -d '{"refresh": "<refresh_token>"}'
+
+# Create a task
+curl -X POST localhost:8000/api/v1/tasks/ \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Write project report", "description": "Summarize Q3 findings", "status": "todo"}'
+
+# List tasks
+curl localhost:8000/api/v1/tasks/ -H "Authorization: Bearer <access_token>"
+
+# List tasks, filtered by status
+curl "localhost:8000/api/v1/tasks/?status=todo" -H "Authorization: Bearer <access_token>"
+
+# List tasks, bypassing the cache
+curl "localhost:8000/api/v1/tasks/?nocache=1" -H "Authorization: Bearer <access_token>"
+
+# Retrieve a single task
+curl localhost:8000/api/v1/tasks/1/ -H "Authorization: Bearer <access_token>"
+
+# Update a task (partial update)
+curl -X PATCH localhost:8000/api/v1/tasks/1/ \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "in_progress"}'
+
+# Delete a task
+curl -X DELETE localhost:8000/api/v1/tasks/1/ -H "Authorization: Bearer <access_token>"
+
+# Check own profile/role
+curl localhost:8000/api/v1/auth/me/ -H "Authorization: Bearer <access_token>"
 ```
 
 `role` is one of `member` (default, sees only their own tasks), `manager`
@@ -127,5 +161,6 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then edit the values, especially SECRET_KEY / passwords
 python manage.py migrate
+python manage.py createsuperuser
 python manage.py runserver
 ```
