@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import Profile, Task
@@ -27,12 +28,14 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         role = validated_data.pop('role', Profile.ROLE_MEMBER)
         password = validated_data.pop('password')
+        validated_data['is_superuser'] = role == Profile.ROLE_ADMIN
+        validated_data['is_staff'] = role in {Profile.ROLE_ADMIN, Profile.ROLE_MANAGER}
         user = User(**validated_data)
         user.set_password(password)
-        user.save()
-        # A Profile may already exist (created by the post_save signal in
-        # api/signals.py) - update its role rather than creating a duplicate.
-        Profile.objects.update_or_create(user=user, defaults={'role': role})
+
+        with transaction.atomic():
+            user.save()
+            Profile.objects.update_or_create(user=user, defaults={'role': role})
         return user
 
 

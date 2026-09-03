@@ -31,7 +31,7 @@ collectstatic, then exits) → `redis` and `web` (the API on
 
 All endpoints under `/api/v1/` require a valid JWT **except** registration.
 
-Examples (You need curl to test the api using this method):
+Examples (You need `curl` to test the api using this method):
 ```bash
 # Register
 curl -X POST localhost:8000/api/v1/auth/register/ \

@@ -24,7 +24,9 @@ class MeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        profile, _ = Profile.objects.get_or_create(user=request.user)
+        user = request.user
+        role = Profile.ROLE_ADMIN if user.is_superuser else Profile.ROLE_MANAGER if user.is_staff else Profile.ROLE_MEMBER
+        profile, _ = Profile.objects.get_or_create(user=user, defaults={'role': role})
         return Response(ProfileSerializer(profile).data)
 
 
@@ -38,7 +40,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        profile, _ = Profile.objects.get_or_create(user=user)
+        profile, _ = Profile.objects.get_or_create(user=user, defaults={'role': Profile.ROLE_MEMBER})
         qs = Task.objects.all() if profile.role == Profile.ROLE_ADMIN else Task.objects.filter(owner=user)
 
         status_param = self.request.query_params.get('status')
