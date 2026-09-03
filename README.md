@@ -25,24 +25,24 @@ collectstatic, then exits) → `redis` and `web` (the API on
 
 ## Auth
 
-All endpoints under `/api/` require a valid JWT **except** registration.
+All endpoints under `/api/v1/` require a valid JWT **except** registration.
 
 ```bash
 # Register
-curl -X POST localhost:8000/api/auth/register/ \
+curl -X POST localhost:8000/api/v1/auth/register/ \
   -H "Content-Type: application/json" \
   -d '{"username": "alice", "email": "alice@example.com", "password": "s3cur3-pass!", "role": "member"}'
 
 # Log in -> get access + refresh tokens
-curl -X POST localhost:8000/api/auth/token/ \
+curl -X POST localhost:8000/api/v1/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"username": "alice", "password": "s3cur3-pass!"}'
 
 # Use the access token
-curl localhost:8000/api/tasks/ -H "Authorization: Bearer <access_token>"
+curl localhost:8000/api/v1/tasks/ -H "Authorization: Bearer <access_token>"
 
 # Refresh
-curl -X POST localhost:8000/api/auth/token/refresh/ \
+curl -X POST localhost:8000/api/v1/auth/token/refresh/ \
   -H "Content-Type: application/json" \
   -d '{"refresh": "<refresh_token>"}'
 ```
@@ -60,17 +60,17 @@ locked-down-by-default unless you explicitly override it (as
 
 ## Tasks API
 
-Standard REST/DRF ViewSet at `/api/tasks/`:
+Standard REST/DRF ViewSet at `/api/v1/tasks/`:
 
 | Method | Path              | Notes                                |
 |--------|-------------------|---------------------------------------|
-| GET    | `/api/tasks/`     | List (cached — see below)             |
-| POST   | `/api/tasks/`     | Create (owner = current user)         |
-| GET    | `/api/tasks/{id}/`| Retrieve (owner or admin only)        |
-| PATCH  | `/api/tasks/{id}/`| Update (owner or admin only)          |
-| DELETE | `/api/tasks/{id}/`| Delete (owner or admin only)          |
+| GET    | `/api/v1/tasks/`     | List (cached — see below)             |
+| POST   | `/api/v1/tasks/`     | Create (owner = current user)         |
+| GET    | `/api/v1/tasks/{id}/`| Retrieve (owner or admin only)        |
+| PATCH  | `/api/v1/tasks/{id}/`| Update (owner or admin only)          |
+| DELETE | `/api/v1/tasks/{id}/`| Delete (owner or admin only)          |
 
-`GET /api/tasks/?status=done` filters by status
+`GET /api/v1/tasks/?status=done` filters by status
 (`todo` / `in_progress` / `done`).
 
 ## Request/response logging
@@ -86,7 +86,7 @@ unauthenticated requests) for **every** request, containing:
   "duration_ms": 25.4,
   "user": "alice",
   "method": "GET",
-  "path": "/api/tasks/",
+  "path": "/api/v1/tasks/",
   "query_params": {"status": "done"},
   "status_code": 200,
   "request_body": null,
@@ -104,13 +104,13 @@ instead of local files, and rotate/size-cap the files.
 
 ## Caching + cache-busting
 
-`GET /api/tasks/` responses are cached in Redis
+`GET /api/v1/tasks/` responses are cached in Redis
 (`api/cache_utils.py`, wired up in `api/views.py`). A cached entry is
 only reused if **all** of these match, giving three independent
 cache-busting dimensions:
 
 1. **URL parameters** — `?status=done` and `?status=todo` (and plain
-   `/api/tasks/`) are cached separately.
+   `/api/v1/tasks/`) are cached separately.
 2. **User + role** — each user has their own cache namespace, and an
    `admin` (who sees everyone's tasks) never reads a `member`'s cached
    response even for the same URL.
@@ -123,7 +123,7 @@ per-user version counter in Redis, which invalidates all of that user's
 previously cached list responses right away rather than waiting for the
 time bucket — you don't need to wait 5 minutes to see your own new task.
 
-For manual busting, add `?nocache=1` to any `GET /api/tasks/` request to
+For manual busting, add `?nocache=1` to any `GET /api/v1/tasks/` request to
 force a fresh read and re-cache it.
 
 ## Local dev without Docker

@@ -13,16 +13,13 @@ CACHE_NAMESPACE = 'tasks'
 
 
 class RegisterView(generics.CreateAPIView):
-    """POST /api/auth/register/ - open to anyone, creates a User + Profile.
-    Everything else in the API requires a valid JWT (see settings.REST_FRAMEWORK)."""
-
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
 
 class MeView(APIView):
-    """GET /api/auth/me/ - the authenticated user's own profile/role."""
+    """GET the authenticated user's own profile/role."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -33,16 +30,7 @@ class MeView(APIView):
 
 class TaskViewSet(viewsets.ModelViewSet):
     """
-    Full CRUD for tasks. Only authenticated users may access it at all
-    (enforced globally by DEFAULT_PERMISSION_CLASSES, reinforced here).
-
-    - Regular users only ever see/modify their own tasks.
-    - Users with the 'admin' role can see/modify everyone's tasks.
-    - `list` responses are cached in Redis; the cache key and its
-      invalidation are handled by api/cache_utils.py (dynamic
-      cache-busting based on URL params, user role, and time; see that
-      module's docstring for details). Pass `?nocache=1` to always bypass
-      the cache for a given request.
+    Full CRUD for tasks. Only authenticated users may access it at all.
     """
 
     serializer_class = TaskSerializer
